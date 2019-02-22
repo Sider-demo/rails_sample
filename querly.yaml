@@ -85,18 +85,16 @@ rules:
     message: 'Rails5では`belongs_to`などを使うと常にindexが作成されます。不要な場合には`index: false`を指定してください。'
   - id: com.sideci.use_find_each
     pattern:
-      - BuildPullRequest...each
-      - BuildPullRequestResult...each
-      - CodeIssue...each
-      - CodeIssueLocation...each
-      - GitHubRepository...each
-      - GitHubCommitStatus...each
-      - RepositoryAccess...each
+      - Micropost...each
+      - Comment...each
     before:
-      - "CodeIssue.all.each"
+      - "Micropost.all.each"
     after:
-      - "CodeIssue.all.find_each"
-    message: "レコード数の多いテーブルでは、eachを使うとメモリ上に全データを展開して問題になることがあります。find_eachを使いましょう。"
+      - "Micropost.all.find_each"
+    message: |
+      レコード数の多いテーブルでは、eachを使うとメモリ上に全データを展開して問題になることがあります。find_eachを使いましょう。
+
+      もしくは、バッチサイズを指定して分割を心がけましょう。処理を追加する前に、現時点でのサイズ（件数）を把握しておいてください。
     justification: "十分にレコード数が少なくなるような条件が指定されている場合"
   - id: com.sideci.use_active_record_query_interface
     pattern:
@@ -249,7 +247,8 @@ rules:
       Admin 配下にコントローラーを定義する際は ApplicationController ではなく、 Admin::ApplicationController を継承しているか確認してください。
 
       Admin::ApplicationController はコールバックでアクセスしたユーザーが admin かどうかをチェックします。
-      このチェックがないと、 GitHub アカウントさえあれば SideCI の管理画面を誰でも参照できてしまいます。
+      このチェックがないと、管理画面を誰でも参照できてしまいます。認可が必要なコントローラでないかどうか、階層が適切か確認してください。
+      部分的に権限確認が必要な箇所は、 before_action などで調整をしてください。
     justification:
       - コントローラーが Admin 配下ではないとき
     examples:
