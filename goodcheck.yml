@@ -1,0 +1,75 @@
+rules:
+  - id: com.sideci.company-name
+    pattern:
+      regexp: 株式会社\s*Sider
+    message:
+      Sider株式会社は後株です。前株ではありません。
+    glob:
+      - "**/*.rb"
+      - "**/*.{js,jsx,ts,tsx}"
+      - "**/*.{yaml,yml}"
+      - "**/*.{erb,slim,html}"
+      - "**/*.md"
+    fail:
+      - 株式会社Sider
+      - 株式会社 Sider
+    pass:
+      - Sider株式会社
+  - id: com.sideci.project_settings
+    pattern:
+      - プロジェクト設定
+      - regexp: Project\sSettings
+        case_sensitive: false
+    message: |
+      リポジトリの設定という意味で、プロジェクト設定(Project Settings)という単語を使わないでください。
+
+      リポジトリ設定、プロジェクト設定という2つの単語で表記ゆれが起きていたので、リポジトリの設定という意味を指す単語は
+      リポジトリ設定(Repository Settings)を使ってください。
+    fail:
+      - プロジェクト設定
+      - Project settings
+    pass:
+      - リポジトリ設定
+      - Repository Settings
+  - id: review.sider.html.target-blank
+    pattern:
+      - 'target="_blank"'
+      - "target='_blank'"
+      - 'target: "_blank"'
+      - "target: '_blank'"
+    glob:
+      - "**/*.{slim,erb,html,jsx,tsx}"
+    message: |
+      `target="_blank"` を使うときは `rel="noopener"` を付けておくとよいです。
+      セキュリティにもパフォーマンスにも良い影響があります。
+
+      See https://qiita.com/memolog/items/9913b0067e4e6883ed17
+    fail:
+      - '<a href="..." target="_blank">...</a>'
+  - id: review.sider.japanese.issue_translation
+    pattern:
+      - 問題
+      - 課題
+    glob: "config/locales/**/ja.yml"
+    message: 「Issue」は無理に日本語に翻訳せず、英語のまま使いましょう。
+    justification: 「Issue」の翻訳に該当しない場合。
+  - id: review.sider.db_migration_steps
+    pattern: "ActiveRecord::Schema.define"
+    glob: "db/schema.rb"
+    message: |
+      This PR changes the database schema. When doing a DB migration, please follow these steps:
+
+      1. Open a new PR that only includes the DB migration (probably `db/**/*.rb` files).
+      2. Add the `migration` label to the PR.
+      3. Merge the PR when CI passes.
+      4. Wait for Jenkins to deploy the new build.
+      5. Run the DB migration (`bundle exec rake db:migrate`) on Jenkins.
+      6. Copy the DB migration log from AWS CloudWatch Logs, and paste in a comment to the PR.
+
+      For example, see https://github.com/sider/sideci/pull/3326
+
+      See also these resources about why we should separate migrations:
+      * https://drive.google.com/file/d/1bgq8agaxYwzF5NlGUpsHyR2KZs_Kre9j/view
+      * https://medium.com/klaxit-techblog/zero-downtime-migrations-with-activerecord-47528abe5136
+import:
+  - https://raw.githubusercontent.com/sider/goodcheck-rules/master/rules/typo.yml

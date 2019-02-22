@@ -1,0 +1,268 @@
+rules:
+  - id: com.sideci.save_not_conditional
+    pattern:
+      - "save() [!conditional]"
+      - "create(...) [!conditional]"
+      - "destroy() [!conditional]"
+      - "update(!validate: false) [!conditional]"
+      - "update_attributes(!validate: false) [!conditional]"
+    message: |
+      ActiveRecord の save や update は失敗した場合に false を返します。
+      失敗したかどうかテストして、失敗した場合の処理を実装してください。
+
+      See https://api.rubyonrails.org/classes/ActiveRecord/Persistence.html#method-i-save
+    justification:
+      - 失敗から回復する方法がない場合
+    before:
+      - "user.save"
+      - "User.create(attr)"
+    after:
+      - "user.save!"
+      - "User.create!(attr)"
+      - "if user.save then foo end"
+  - id: com.sideci.without_validation
+    pattern:
+      - "save(validate: false)"
+      - "save!(validate: false)"
+      - "update(validate: false)"
+      - "update!(validate: false)"
+      - "update_attributes(validate: false)"
+      - "update_attributes!(validate: false)"
+      - update_attribute
+    message: |
+      ActiveRecord のこのメソッドは validation をスキップします。
+
+      See https://api.rubyonrails.org/classes/ActiveRecord/Persistence.html#method-i-save
+    justification:
+      - validation をスキップしても、不正な状況にならない場合
+  - id: com.sideci.meta
+    pattern:
+      - classify
+      - constantize
+      - eval
+      - instance_values
+      - safe_constantize
+      - class_eval
+      - module_eval
+    message: |
+      本当にメタプログラミングが必要か、三回考え直してください
+      ほとんどの場合は、より読みやすいコードで記述することができます
+  - id: activesupport.try
+    pattern: "try(:symbol:, ...)"
+    message: |
+      try はメソッドが定義されていない場合に nil を返します。
+      try! を使う必要がないか検討してください。
+  - id: com.sideci.find
+    pattern: 'find(_) [conditional]'
+    message: 'ActiveRecord の find はレコードが存在しない場合は例外を投げるため、if文などの条件に指定しないでください'
+  - id: com.sideci.use_pluck
+    pattern: "all.map(&:symbol:)"
+    before: "Tool.all.map(&:id)"
+    after: "Tool.pluck(:id)"
+    message: ActiveRecordではall.map(&:id)をするよりもpluck(:id)を使う方が高速です。
+  - id: com.sideci.size_over_count
+    pattern:
+      - "count() !{}"
+    message: |
+      Enumerable#count は each を使って数え上げます
+
+      レシーバが Array などの場合は \#size を使う方が高速に動作します。
+    before:
+      - "array.count != 3"
+    after:
+      - "array.size != 3"
+      - "array.count(:x) > 0"
+      - "array.count {|x| x == 3 } == 4"
+  - id: com.sideci.reference_index
+    pattern:
+      - "_.belongs_to(:symbol:, ..., !index: _, ...)"
+      - "_.references(:symbol:, ..., !index: _, ...)"
+    before:
+      - 't.belongs_to :email'
+    after:
+      - 't.belongs_to :email, index: true'
+      - 't.belongs_to :email, index: false'
+    message: 'Rails5では`belongs_to`などを使うと常にindexが作成されます。不要な場合には`index: false`を指定してください。'
+  - id: com.sideci.use_find_each
+    pattern:
+      - BuildPullRequest...each
+      - BuildPullRequestResult...each
+      - CodeIssue...each
+      - CodeIssueLocation...each
+      - GitHubRepository...each
+      - GitHubCommitStatus...each
+      - RepositoryAccess...each
+    before:
+      - "CodeIssue.all.each"
+    after:
+      - "CodeIssue.all.find_each"
+    message: "レコード数の多いテーブルでは、eachを使うとメモリ上に全データを展開して問題になることがあります。find_eachを使いましょう。"
+    justification: "十分にレコード数が少なくなるような条件が指定されている場合"
+  - id: com.sideci.use_active_record_query_interface
+    pattern:
+      - order(:string:)
+    before:
+      - 'order("id DESC")'
+    after:
+      - "order(id: :desc)"
+    message: |
+      カラム名を指定するときは、文字列ではなくシンボルを指定してください。
+
+      ActiveRecordでは、シンボルでカラム名を指定した場合、適切なテーブル名を使ってSQLを発行しますが、文字列で指定した場合はそれが行われません。
+      同じ名称のカラムをもつテーブルをJOINした場合、適切でないSQLが発行され、意図しない挙動を引き起こす恐れがあります。
+  - id: com.sideci.dangerous_add_index
+    pattern:
+      - 'add_index(:symbol:, ...)'
+    message: |
+      add_indexの対象のテーブルが長いトランザクションの中で更新されているとき、metadata lockによってDDL実行時、関連する後続のクエリがすべてブロックされることがあります。
+
+      過去にrepository_accessesへのインデックス追加時に、インデックスの追加が完了せずにサービスが停止するという障害が発生しました。
+      これはrepository_accessesを更新する長いトランザクションを実行中にCREATE INDEXが実行され、DDLが実行を待っている間、他のクエリがすべてブロックされていたからです。
+      同様の事故が発生しないことを十分に確認した上で、add_indexを行うようにしてください。
+      参考 https://sideci.qiita.com/shared/items/e99dbe8cfe2a2cd4e19e
+    justification:
+      - 対象のテーブルを更新する長いトランザクションが存在しないとき
+      - 書き込み、読み込みが滅多に発生しないテーブルのとき
+  - id: com.sideci.dangerous_change_column
+    pattern:
+      subject: "'migration(:symbol:, ...)"
+      where:
+        migration:
+          - /change_.*/
+          - /rename_.*/
+    message: |
+      並列DMLが許可されていないマイグレーションの場合関連するクエリがブロックされて
+      サービスが停止することがあります。以下のドキュメントを参照し並列DMLが許可された操作
+      かどうか確認してください。
+
+      https://dev.mysql.com/doc/refman/5.7/en/innodb-create-index-overview.html
+    justification:
+      - 対象のテーブルのレコード数が少ないとき
+      - 書き込み、読み込みが滅多に発生しないテーブルのとき
+      - メンテナンスを宣言したとき
+  - id: com.sideci.delete_repository_service
+    pattern:
+      - 'has_many'
+      - 'has_one'
+    message: |
+      モデルに新しいアソシエーションを追加する際には、リポジトリ削除時に正しく削除されるか確認してください
+
+      リポジトリの削除はDeleteRepositoryJobによって行われます。リポジトリの削除時に新しく追加したアソシエーションを削除しなくてはいけない場合には
+      このジョブに処理を追加、または適切にdependentを記述することを忘れないようにしてください
+    justification:
+      - リポジトリが削除される際に消さなくてはいけないデータではない
+      - 既に適切な削除するための処理を追加している
+  - id: com.sideci.no-string-freeze
+    pattern: |
+      :string:.freeze
+    message: 文字列リテラルを `.freeze` するのはやめましょう
+    examples:
+      - before: |
+          "hello world".freeze
+        after: |
+          "hello world"
+  - id: com.sideci.no_test_mailer
+    pattern: TestMailer
+    message: TestMailer はテスト送信専用なので、アプリケーションからは使ってはいけません
+    examples:
+      before: |
+        TestMailer.test("matsumoto@soutaro.com").deliver
+  - id: com.sideci.debug_loglevel
+    pattern: config.log_level=(:debug)
+    message: |
+      ログレベルをdebugにする際には、大量のログがサービスに悪影響を与えないか十分に考慮してください。
+
+      例えば、logglierなどを使っていると、ログごとにHTTPSでリクエストを送るので、大量のログが継続的に発生すると、
+      サービスが不安定になる可能性があります。https://scrapbox.io/sideci/%5Bpostmortem%5D_2018%2F01%2F12に発生した503エラーや解析遅延について
+      ログを減らせる場所は無いか、もしくは、一部だけのログをdebugにするだけで十分ではないか、などを考えましょう。
+    examples:
+      - before: config.log_level = :debug
+        after: config.log_level = :info
+  - id: com.sideci.params_id
+    pattern:
+      - subject: "params.[](:symbol: as 'id)"
+        where:
+          id: /_id/
+      - subject: "params.require(:symbol: as 'id)"
+        where:
+          id: /_id/
+    message: |
+      リポジトリやオーガニゼーションなどのIDをparamsとして受け取る場合には、ユーザーに対する権限を確認してください。
+
+      例えば、リポジトリやオーガニゼーションのIDをparamsで受けとって、それを使ってfindするような場合、
+      そのユーザーが閲覧できてはいけないレコードを参照できてしまうことがあります。
+      必ず外部からIDを受け取る場合には、そのIDで参照できるレコードに対してユーザーが閲覧権限を持つかチェックするようにしてください。
+    examples:
+      - before: params[:repository_id]
+        after: params[:repository_language]
+      - before: params.require(:organization_id)
+        after: params.requre(:organization_name)
+  - id: com.sideci.import_deadlock
+    pattern: import!
+    message: |
+      ユニークキーを持つテーブルへのバルクインサート時には、デッドロックが発生しないようにユニークキーでソートしてください
+
+      バルクインサート時のインサート順を考慮しない場合、ギャップロックが発生して、複数のトランザクションが同時に実行されるときに、デッドロックが発生することがあります。
+      https://dev.mysql.com/doc/refman/5.7/en/innodb-locking.html#innodb-insert-intention-locks
+  - id: com.sideci.remove_column
+    pattern:
+      - 'remove_column(:symbol:, ...)'
+    message: |
+      複合インデックスが設定されているカラムを削除する際には、先にインデックスを削除するようにしてください
+
+      MySQLで複合インデックスが設定されているカラムを削除すると、そのカラムを含まないインデックスになります。
+      意図しないインデックスが残る可能性があるので、先にインデックスを削除するようにしてください。
+      また、先にカラムを削除してからインデックスを削除すると、Rails5ではエラーになるため、順番に注意してください。
+    examples:
+      - before: remove_column :organizations, :plan_id
+  - id: com.sideci.active_record_validation
+    pattern:
+      - 'validates(:symbol:, ..., uniqueness: _, ...)'
+    message: |
+      When setting `uniqueness` to `ActiveRecord` validation, please check if the DB column has **UNIQUE INDEX**.
+
+      * `uniqueness` checking on application-level may not work on database-level.
+      * `uniqueness` calls SELECT for DB on each check. This may cause a performance issue.
+
+      For details, please see documentation:
+      * https://guides.rubyonrails.org/active_record_validations.html#uniqueness
+      * https://api.rubyonrails.org/classes/ActiveRecord/Validations/ClassMethods.html#method-i-validates_uniqueness_of
+    examples:
+      - before: 'validates :column_name, uniqueness: true'
+  - id: com.sideci.active_record_callbacks
+    pattern:
+      - 'after_initialize'
+      - 'after_find'
+    message: |
+      ActiveRecord で after_initialize / after_find コールバックを使う場合は、パフォーマンスが劣化しないか注意してください。
+      例えば、 Model.find_each した時は全件数分の after_find と afterinitialize がキックされます。
+      これらのコールバックに重い処理を書いてしまうと、意図せずにパフォーマンス劣化の原因となる可能性があります。
+
+      See also:
+        http://o.inchiki.jp/obbr/127
+        http://api.rubyonrails.org/classes/ActiveRecord/Callbacks.html
+    justification:
+      - '`if: :new_record?` などの制約条件が付いている'
+  - id: com.sideci.admin_controller
+    pattern: ApplicationController
+    message: |
+      Admin 配下にコントローラーを定義する際は ApplicationController ではなく、 Admin::ApplicationController を継承しているか確認してください。
+
+      Admin::ApplicationController はコールバックでアクセスしたユーザーが admin かどうかをチェックします。
+      このチェックがないと、 GitHub アカウントさえあれば SideCI の管理画面を誰でも参照できてしまいます。
+    justification:
+      - コントローラーが Admin 配下ではないとき
+    examples:
+      - before: "ApplicationController"
+  - id: com.sider.lock_statement
+    pattern: lock!
+    message: |
+      データベースをロックする際には、タイムアウト時のエラーハンドリングを考慮してください
+
+      他のロックが既にある場合、タイムアウトに達してエラーになる可能性があります。
+      see https://app.bugsnag.com/sideci-1/sider/errors/5b4315530492ec001bd70a4d
+    justification:
+      - エラー発生時のハンドリングが既に考慮されている
+      - エラーが発生しても問題が無い
+    examples:
+      - before: lock.lock!

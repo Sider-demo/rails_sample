@@ -1,0 +1,28 @@
+<% provide(:title, @user.name) %>
+<div class="row">
+  <aside class="col-md-4">
+    <section class="user_info">
+      <h1>
+        <%= gravatar_for @user %>
+        <%= @user.name %>
+      </h1>
+    </section>
+
+    <section>
+      <%= form_for(Micropost.new(user: @user)) do |f| %>
+        <%= f.text_area :content %>
+        <%= f.submit %>
+      <% end %>
+    </section>
+
+    <section>
+      <% @user.microposts.each do |post| %>
+        <div>
+          <%# It has XSS, so Brakeman warns it. %>
+          <div><%= "<strong>#{post.content}<strong>".html_safe %></div>
+          <div><small>creaeted: <%= post.created_at %></small></div>
+        </div>
+      <% end %>
+    </section>
+  </aside>
+</div>
