@@ -16,8 +16,11 @@ class Micropost < ApplicationRecord
   #
   class << self
     def convert_content(pattern, replaced)
-      Micropost.all.each do |m|
-        m.update_attribute(:content, m.convert_content(pattern, replaced))
+      Micropost.transaction do
+        Micropost.all.each do |m|
+          m.lock!
+          m.update_attribute(:content, m.convert_content(pattern, replaced))
+        end
       end
     end
   end
